@@ -1,95 +1,123 @@
-# ASYNC_DATA_PIPELINE_TASK.md
+# FIX_ASYNC_REPO_ISSUES.md
 
-Статус: заменяет `CONTENT_PIPELINE_ORCHESTRATOR_TASK.md`. Старый файл можно удалить/архивировать, эта версия - актуальная.
+Репозиторий: `Crazy4elovek66/async`. Работать в feature-branch, не пушить в main напрямую. Не трогать существующий `.env` пользователя, если он есть локально.
 
-## Роль
+---
 
-Ты - Senior Python/Backend инженер. Работаешь в feature-branch, не пушишь напрямую в main. Не трогаешь `.env`, токены, ключи Supabase/Vercel. Перед деплоем (`vercel --prod`) и удалением файлов - спрашиваешь подтверждение.
+## Проблема 1. `.env.example` не попадает в git
 
-## Идея проекта
+**Что происходит:** файла `.env.example` нет в репозитории на GitHub, хотя README на него ссылается.
 
-Асинхронный конвейер обработки данных с очередью задач, ретраями, идемпотентностью и мониторингом - на 100% бесплатном стеке: Supabase (Postgres, бесплатный тариф) как хранилище очереди, Vercel (serverless functions + Cron Jobs, бесплатный тариф) как исполнитель. Без источника данных, требующего скрейпинга закрытых площадок - только публичные API/RSS/открытые датасеты, чтобы не залезать в юридические риски ToS.
+**Почему возникло:** в `.gitignore` строка `.env*` гасит вообще всё, что начинается на `.env`, включая сам шаблон `.env.example`.
 
-Тема проекта нейтральная и универсальная (например, "мониторинг цен товаров с публичных API" или "агрегатор новостей по RSS") - конкретную тему выбрать самому агенту, любую, где реально нужна параллельная асинхронная обработка N элементов с сетевыми запросами.
+**Что исправить:** в файле `.gitignore` заменить широкий паттерн на точечный.
 
-Цель - закрыть в портфолио ключевые слова "async", "task queue", "retry logic", "idempotency", "monitoring" - то, что ищут в вакансиях Python backend/automation, плюс показать, что ты умеешь строить бессерверную архитектуру без затрат на хостинг.
+**Куда вставить:** файл `.gitignore` в корне репозитория.
 
-## Функциональные требования
-
-1. **Таблица задач в Supabase** (Postgres): `id`, `payload` (jsonb), `status` (`queued`/`processing`/`done`/`failed`), `attempts`, `max_attempts`, `last_error`, `created_at`, `updated_at`, `result` (jsonb, nullable).
-2. **Постановка задач в очередь**: эндпоинт `POST /api/tasks` (Vercel serverless function), добавляет N записей со статусом `queued`.
-3. **Обработчик очереди (worker)**: отдельная serverless-функция `/api/process-queue`, вызывается по Vercel Cron раз в 1-5 минут (частота - под бесплатный лимит Cron: Hobby-план даёт запуск не чаще раза в день на функцию по умолчанию в новых версиях - агент должен проверить актуальный лимит Vercel Cron на Hobby-тарифе перед реализацией и подобрать частоту, которая укладывается в бесплатный лимит, либо реализовать fallback: ручной вызов через `GET`-запрос с секретным токеном, если Cron на бесплатном тарифе слишком редкий).
-4. **Параллельность**: внутри одного вызова `process-queue` обрабатывать пачку задач (например, 10-20 штук) конкурентно через `asyncio.gather` + `asyncio.Semaphore` (ограничение одновременных запросов, например 5), а не последовательно.
-5. **Идемпотентность**: перед обработкой - атомарно перевести задачу из `queued` в `processing` (через `UPDATE ... WHERE status = 'queued'` с проверкой affected rows), чтобы два параллельных вызова не схватили одну и ту же задачу дважды.
-6. **Ретраи**: при ошибке - `attempts += 1`, если `attempts < max_attempts` - вернуть статус в `queued` для следующего прогона Cron (без немедленного повтора, шаг = следующий тик Cron - это и есть backoff в условиях serverless), если `attempts >= max_attempts` - `failed` с записью `last_error`.
-7. **Мониторинг**: эндпоинт `GET /api/metrics` - количество задач по статусам, средняя скорость обработки за последний час, список последних 10 упавших задач с причиной. Простая страница `/status` на Next.js (тот же проект, что и API-функции), показывающая эти метрики - можно переиспользовать визуальный стиль лендинга-портфолио (тёмный фон, спокойный минимализм, без ярких цветов).
-8. **Уведомления** (опционально, если легко добавляется): вебхук в Telegram при переходе задачи в `failed` после исчерпания попыток.
-
-## Технологический стек (бюджет 0)
-
-- Next.js (API routes или Route Handlers) - тот же фреймворк, что и в остальных проектах, деплой на Vercel бесплатно
-- Supabase (Postgres, бесплатный тариф) - хранилище очереди задач, через `@supabase/supabase-js` или прямой SQL
-- Vercel Cron Jobs (бесплатный тариф) - триггер обработки очереди
-- Python-версия ядра логики (state machine, идемпотентность, ретраи) - как отдельный модуль с тестами на `pytest`, чтобы показать Python-компетенцию отдельно от Next.js-обвязки (см. структуру файлов ниже - `core/` на Python с юнит-тестами, вызывается либо напрямую в Python-варианте деплоя, либо логика продублирована в TypeScript для Vercel-функций с явным указанием в README, что источник истины - Python-модуль с тестами, а TS-версия - продакшен-обвязка)
-- `pytest` для тестов ядра
-
-## Структура файлов
-
+Было:
 ```
-async-data-pipeline/
-  README.md
-  .env.example
-  .gitignore
-  package.json
-  vercel.json                    # конфигурация Cron Jobs
-  app/
-    api/
-      tasks/route.ts              # POST - постановка задач в очередь
-      process-queue/route.ts      # обработчик очереди, вызывается Cron
-      metrics/route.ts             # метрики для мониторинга
-    status/
-      page.tsx                     # страница мониторинга
-  lib/
-    supabase.ts                    # клиент Supabase
-    queue.ts                       # логика идемпотентного захвата задач, ретраев
-    processor.ts                   # логика обработки одной задачи (fetch публичного API)
-    notifier.ts                    # опциональный Telegram-вебхук
-  core/                            # Python-ядро логики (для демонстрации в резюме отдельно)
-    state_machine.py
-    tests/
-      test_state_machine.py
-      test_idempotency.py
-  supabase/
-    migrations/
-      001_create_tasks_table.sql
+# env files (can opt-in for committing if needed)
+.env*
 ```
 
-## Этапы реализации
+Стало:
+```
+# env files (can opt-in for committing if needed)
+.env
+.env.local
+.env.*.local
+```
 
-**M1 - схема данных.** Создать таблицу `tasks` в Supabase через миграцию, настроить RLS (Row Level Security) минимально необходимо - если API работает через service role key на сервере, публичный anon-доступ к таблице должен быть закрыт.
+**Дальше:** создать файл `.env.example` в корне (если его нет локально из-за той же причины) со следующим содержимым:
+```
+NEXT_PUBLIC_SUPABASE_URL=https://your-project.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-from-supabase
+QUEUE_SECRET_TOKEN=local-dev-secret
+CRON_SECRET=local-dev-secret
+```
+Закоммитить и запушить оба файла (`.gitignore` + `.env.example`).
 
-**M2 - Python-ядро с тестами.** Реализовать `core/state_machine.py` с чистой логикой переходов состояний, идемпотентности, ретраев - без привязки к Supabase/Vercel, чтобы её можно было протестировать `pytest` изолированно. Это ядро - источник истины для алгоритма, который потом отражается в TS-обвязке.
+**Как проверить:** открыть `https://raw.githubusercontent.com/Crazy4elovek66/async/main/.env.example` после пуша - должен отдавать 200 и содержимое файла, а не 404.
 
-**M3 - API + Cron.** Реализовать `POST /api/tasks`, `GET /api/process-queue` (вызывается Cron), настроить `vercel.json` с расписанием. Проверить фактический лимит Cron на бесплатном тарифе Vercel перед финализацией расписания (лимиты меняются, агент должен свериться с актуальной документацией Vercel на момент реализации).
+---
 
-**M4 - мониторинг.** Реализовать `GET /api/metrics` и страницу `/status` с наглядной сводкой (очередь/обработка/готово/упало, последние ошибки).
+## Проблема 2. Вероятный баг в SQL-функции `acquire_queued_tasks`
 
-**M5 - упаковка.** README с объяснением архитектуры (почему Cron вместо воркера, диаграмма потока задачи), инструкция по деплою на Vercel + подключению Supabase (используя переменные окружения, без хардкода ключей), тесты, CI (`.github/workflows/ci.yml` - `pytest` для `core/`, `npm run lint`/`build` для Next.js части).
+**Что происходит:** функция в миграции скорее всего падает с ошибкой при захвате больше одной задачи из очереди.
 
-## Критерии приемки
+**Почему возникло:** `RETURNING id INTO acquired_ids` пытается присвоить скалярное значение `uuid` в переменную типа `UUID[]`. В PL/pgSQL для `INTO` без `STRICT` при нескольких строках результата берётся только первая строка, и присвоить её напрямую в массив нельзя - типы `uuid` и `uuid[]` несовместимы для такого присваивания.
 
-- [x] `POST /api/tasks` кладет задачи в Supabase со статусом `queued`
-- [x] Cron триггерит `process-queue`, задачи параллельно обрабатываются и переходят в `done`/`failed`
-- [x] Повторный запуск `process-queue` не берет уже взятую в обработку задачу дважды (тест на конкурентный захват)
-- [x] При принудительной ошибке задача уходит на ретрай, а после исчерпания попыток - в `failed` с `last_error`
-- [x] `/status` показывает актуальные метрики
-- [x] Ядро (`core/`) покрыто тестами, тесты проходят
-- [x] Все тексты интерфейса и API-ошибок - на русском
-- [x] Деплой на Vercel + Supabase бесплатного тарифа достаточно, платных сервисов не подключено
+**Что исправить:** переписать функцию без промежуточной переменной-массива, используя `RETURN QUERY` напрямую поверх `UPDATE ... RETURNING`.
 
-## Ограничения
+**Куда вставить:** файл `supabase/migrations/001_create_tasks_table.sql`, заменить весь блок функции `acquire_queued_tasks`.
 
-- Не использовать источники данных, требующие обхода защиты/скрейпинга закрытых площадок (LinkedIn, Instagram и т.п.) - только публичные API/RSS/открытые датасеты.
-- Не хардкодить ключи Supabase/Telegram - только через `.env.example` и переменные окружения Vercel.
-- Не заводить отдельный платный always-on сервер (Render paid, VPS и т.д.) - весь проект должен работать на бесплатных тарифах Vercel + Supabase.
-- Не переусложнять - не нужен Redis/RQ, раз Supabase Postgres уже покрывает роль очереди для такого объема задач.
+Было:
+```sql
+CREATE OR REPLACE FUNCTION acquire_queued_tasks(max_tasks INT)
+RETURNS SETOF tasks AS $$
+DECLARE
+  acquired_ids UUID[];
+BEGIN
+  WITH selected_tasks AS (
+    SELECT id FROM tasks
+    WHERE status = 'queued'
+    ORDER BY created_at ASC
+    LIMIT max_tasks
+    FOR UPDATE SKIP LOCKED
+  )
+  UPDATE tasks
+  SET status = 'processing', updated_at = NOW()
+  WHERE id IN (SELECT id FROM selected_tasks)
+  RETURNING id INTO acquired_ids;
+
+  RETURN QUERY
+  SELECT * FROM tasks WHERE id = ANY(acquired_ids);
+END;
+$$ LANGUAGE plpgsql;
+```
+
+Стало:
+```sql
+CREATE OR REPLACE FUNCTION acquire_queued_tasks(max_tasks INT)
+RETURNS SETOF tasks AS $$
+BEGIN
+  RETURN QUERY
+  WITH selected_tasks AS (
+    SELECT id FROM tasks
+    WHERE status = 'queued'
+    ORDER BY created_at ASC
+    LIMIT max_tasks
+    FOR UPDATE SKIP LOCKED
+  )
+  UPDATE tasks
+  SET status = 'processing', updated_at = NOW()
+  WHERE id IN (SELECT id FROM selected_tasks)
+  RETURNING *;
+END;
+$$ LANGUAGE plpgsql;
+```
+
+Так `RETURN QUERY` напрямую отдаёт все обновлённые строки со всеми полями таблицы `tasks`, без промежуточного массива и без несовпадения типов.
+
+**Дальше:** если миграция уже применена к реальной базе Supabase в текущем виде - функцию нужно пересоздать через `CREATE OR REPLACE FUNCTION` (новый код выше уже написан как `CREATE OR REPLACE`, поэтому повторное применение файла миграции безопасно перезапишет функцию). Применить через Supabase SQL Editor или `supabase db push`, в зависимости от того, как ведётся миграция в проекте.
+
+**Как проверить:**
+1. В Supabase SQL Editor выполнить вручную:
+```sql
+INSERT INTO tasks (payload) VALUES ('{"feed_url": "https://example.com/rss1"}'), ('{"feed_url": "https://example.com/rss2"}');
+SELECT * FROM acquire_queued_tasks(2);
+```
+2. Ожидаемый результат: две строки со статусом `processing`, без ошибок типов.
+3. Повторный вызов `SELECT * FROM acquire_queued_tasks(2);` должен вернуть 0 строк (обе задачи уже захвачены) - это подтверждает идемпотентность на реальной базе, а не только в Python-симуляции.
+4. Затем прогнать полный цикл через приложение: `POST /api/tasks` с реальным `feed_url` -> вызвать `/api/process-queue?secret=...` -> проверить `/status`, что задача дошла до `done`.
+
+**Что делать, если не сработало:** если после фикса `acquire_queued_tasks` всё равно падает с ошибкой - прислать точный текст ошибки из Supabase, не переписывать логику наугад.
+
+---
+
+## Чек-лист после исправлений
+
+- [x] `.env.example` виден в репозитории на GitHub (успешно запушен в ветку `fix/repo-issues`)
+- [ ] `acquire_queued_tasks` выполняется в Supabase SQL Editor без ошибок на 2+ задачах (готово к проверке в Supabase после применения миграции)
+- [ ] Повторный вызов функции не берёт уже захваченные задачи
+- [ ] Полный цикл `POST /api/tasks -> /api/process-queue -> /status` пройден вручную на реальном Supabase, не только через pytest-симуляцию
