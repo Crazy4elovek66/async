@@ -120,4 +120,4 @@ SELECT * FROM acquire_queued_tasks(2);
 - [x] `.env.example` виден в репозитории на GitHub (успешно запушен в ветку `fix/repo-issues`)
 - [x] `acquire_queued_tasks` выполняется в Supabase SQL Editor без ошибок на 2+ задачах
 - [x] Повторный вызов функции не берёт уже захваченные задачи
-- [ ] Полный цикл `POST /api/tasks -> /api/process-queue -> /status` пройден вручную на реальном Supabase, не только через pytest-симуляцию
+- [x] Полный цикл `POST /api/tasks -> /api/process-queue -> /status` пройден вручную на реальном Supabase, не только через pytest-симуляцию
