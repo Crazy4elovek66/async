@@ -52,10 +52,8 @@ CREATE POLICY service_role_access ON tasks
 -- Функция для атомарного идемпотентного захвата задач из очереди воркером
 CREATE OR REPLACE FUNCTION acquire_queued_tasks(max_tasks INT)
 RETURNS SETOF tasks AS $$
-DECLARE
-  acquired_ids UUID[];
 BEGIN
-  -- Атомарное обновление статуса выбранных задач с блокировкой строк
+  RETURN QUERY
   WITH selected_tasks AS (
     SELECT id FROM tasks
     WHERE status = 'queued'
@@ -66,11 +64,7 @@ BEGIN
   UPDATE tasks
   SET status = 'processing', updated_at = NOW()
   WHERE id IN (SELECT id FROM selected_tasks)
-  RETURNING id INTO acquired_ids;
-
-  -- Возвращаем все поля для обновленных задач
-  RETURN QUERY
-  SELECT * FROM tasks WHERE id = ANY(acquired_ids);
+  RETURNING *;
 END;
 $$ LANGUAGE plpgsql;
 
