@@ -9,6 +9,7 @@ interface FailedTask {
     feed_url: string;
     keywords?: string[];
   };
+  status: string;
   attempts: number;
   max_attempts: number;
   last_error: string | null;
@@ -332,7 +333,7 @@ export default function StatusPage() {
                   <thead>
                     <tr>
                       <th>RSS-Лента / URL</th>
-                      <th>Попыток</th>
+                      <th>Статус / Попытки</th>
                       <th>Описание ошибки</th>
                       <th>Дата ошибки</th>
                       <th>Действие</th>
@@ -352,9 +353,14 @@ export default function StatusPage() {
                           )}
                         </td>
                         <td>
-                          <span className={styles.attemptsBadge}>
-                            {task.attempts}/{task.max_attempts}
-                          </span>
+                          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '0.25rem' }}>
+                            <span className={`${styles.statusBadge} ${task.status === 'failed' ? styles.statusFailed : styles.statusRetry}`}>
+                              {task.status === 'failed' ? 'Ошибка' : 'Ретрай'}
+                            </span>
+                            <span className={styles.attemptsText}>
+                              Попытка: {task.attempts}/{task.max_attempts}
+                            </span>
+                          </div>
                         </td>
                         <td>
                           <div className={styles.errorText} title={task.last_error || ''}>

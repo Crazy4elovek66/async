@@ -16,11 +16,11 @@ export async function GET() {
       return { status, count: count || 0 };
     });
 
-    // 2. Сбор последних 10 упавших задач
+    // 2. Сбор последних 10 задач со сбоями (включая ретраи с ошибками)
     const failedTasksPromise = supabase
       .from('tasks')
-      .select('id, payload, attempts, max_attempts, last_error, updated_at')
-      .eq('status', 'failed')
+      .select('id, payload, status, attempts, max_attempts, last_error, updated_at')
+      .not('last_error', 'is', null)
       .order('updated_at', { ascending: false })
       .limit(10);
 
